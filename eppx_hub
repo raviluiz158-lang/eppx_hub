@@ -1,0 +1,224 @@
+--[[ 
+    EPPX Hub - Sky Mode
+    Compatível com Mobile (KNRL) e PC
+--]]
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- função arrastar
+local function makeDraggable(frame)
+    local dragging, dragInput, dragStart, startPos
+    local function update(input)
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            dragInput = input
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging=false end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then update(input) end
+    end)
+end
+
+-- Criar painel circular
+local function createCircularPanel(size,pos)
+    local frame = Instance.new("Frame")
+    frame.Size = size
+    frame.Position = pos
+    frame.AnchorPoint = Vector2.new(0.5,0.5)
+    frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    frame.Parent = screenGui
+    frame.Active = true
+    makeDraggable(frame)
+
+    local corner = Instance.new("UICorner",frame)
+    corner.CornerRadius = UDim.new(1,0)
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 3
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    stroke.Parent = frame
+
+    -- animação RGB nas bordas
+    task.spawn(function()
+        local colors = {
+            Color3.fromRGB(255,0,0),
+            Color3.fromRGB(0,255,0),
+            Color3.fromRGB(0,0,255),
+            Color3.fromRGB(255,255,0),
+            Color3.fromRGB(255,0,255),
+            Color3.fromRGB(0,255,255)
+        }
+        local i=1
+        while task.wait() do
+            local nextColor = colors[(i % #colors)+1]
+            local tween = TweenService:Create(
+                stroke,
+                TweenInfo.new(2,Enum.EasingStyle.Linear,Enum.EasingDirection.InOut),
+                {Color=nextColor}
+            )
+            tween:Play()
+            tween.Completed:Wait()
+            i=i+1
+        end
+    end)
+
+    return frame
+end
+
+-- Criar botão
+local function makeButton(parent,text)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.8,0,0.8,0)
+    btn.Position = UDim2.new(0.1,0,0.1,0)
+    btn.Text = text
+    btn.TextScaled = true
+    btn.BackgroundTransparency = 1
+    btn.TextColor3 = Color3.fromRGB(255,255,255)
+    btn.Parent = parent
+    return btn
+end
+
+-- Armadura
+local armorParts = {}
+local function createArmor(char)
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local function addArmorPart(size, offset)
+        local part = Instance.new("Part")
+        part.Size = size
+        part.Anchored = false
+        part.CanCollide = false
+        part.Color = Color3.fromRGB(60,60,60)
+        part.Material = Enum.Material.Metal
+        part.Reflectance = 0.4
+        part.Parent = hrp
+
+        local weld = Instance.new("WeldConstraint")
+        weld.Part0 = hrp
+        weld.Part1 = part
+        weld.Parent = part
+        part.CFrame = hrp.CFrame * offset
+
+        local hl = Instance.new("Highlight")
+        hl.Adornee = part
+        hl.FillTransparency = 1
+        hl.OutlineTransparency = 0.2
+        hl.OutlineColor = Color3.fromRGB(0,170,255)
+        hl.Parent = part
+
+        -- animação do contorno RGB
+        task.spawn(function()
+            local colors = {
+                Color3.fromRGB(255,0,0),
+                Color3.fromRGB(0,255,0),
+                Color3.fromRGB(0,0,255),
+                Color3.fromRGB(255,255,0),
+                Color3.fromRGB(255,0,255),
+                Color3.fromRGB(0,255,255)
+            }
+            local i=1
+            while part.Parent do
+                local nextColor = colors[(i % #colors)+1]
+                local tween = TweenService:Create(
+                    hl,
+                    TweenInfo.new(2,Enum.EasingStyle.Linear,Enum.EasingDirection.InOut),
+                    {OutlineColor=nextColor}
+                )
+                tween:Play()
+                tween.Completed:Wait()
+                i=i+1
+            end
+        end)
+
+        table.insert(armorParts, part)
+    end
+
+    addArmorPart(Vector3.new(3,4,1), CFrame.new(0,0,0)) -- Tronco
+    addArmorPart(Vector3.new(1.5,1.5,1), CFrame.new(-2,1.5,0)) -- Ombro esquerdo
+    addArmorPart(Vector3.new(1.5,1.5,1), CFrame.new(2,1.5,0))  -- Ombro direito
+end
+
+-- Chão invisível infinito
+local skyPlatform
+local function createPlatform(char)
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    if skyPlatform and skyPlatform.Parent then skyPlatform:Destroy() end
+
+    skyPlatform = Instance.new("Part")
+    skyPlatform.Size = Vector3.new(500,1,500)
+    skyPlatform.Anchored = true
+    skyPlatform.Transparency = 1
+    skyPlatform.Parent = workspace
+
+    RunService.Heartbeat:Connect(function()
+        if skyPlatform and hrp then
+            skyPlatform.Position = hrp.Position - Vector3.new(0,3,0)
+        end
+    end)
+end
+
+-- Ativar imortalidade + invisibilidade
+local function makeImmortal(char)
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.Health = math.huge
+        hum.MaxHealth = math.huge
+    end
+    for _,part in pairs(char:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name~="HumanoidRootPart" then
+            part.Transparency = 1
+        end
+    end
+end
+
+-- Painel
+local panel = createCircularPanel(UDim2.new(0,80,0,80),UDim2.new(0.2,0,0.5,0))
+local btn = makeButton(panel,"UP")
+
+-- Estado
+local up = false
+
+btn.MouseButton1Click:Connect(function()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    if not up then
+        hrp.CFrame = CFrame.new(hrp.Position + Vector3.new(0,500,0)) -- sobe pro céu
+        createPlatform(char)
+        makeImmortal(char)
+        createArmor(char)
+        up = true
+        btn.Text = "DOWN"
+    else
+        hrp.CFrame = CFrame.new(hrp.Position - Vector3.new(0,500,0)) -- volta pro chão
+        if skyPlatform then skyPlatform:Destroy() end
+        for _,p in ipairs(armorParts) do p:Destroy() end
+        armorParts = {}
+        up = false
+        btn.Text = "UP"
+    end
+end)
